@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="src\http.cpp">
+      <Filter>http</Filter>
+    </ClCompile>
+    <ClCompile Include="src\HttpHeader.cpp">
+      <Filter>http\HttpHeader</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="http">
+      <UniqueIdentifier>{7b781e45-f312-4700-bdb8-1fd140dfc5d9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="http\HttpHeader">
+      <UniqueIdentifier>{79b6164e-bdbe-44bd-8f2a-9964adbcc941}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\http.h">
+      <Filter>http</Filter>
+    </ClInclude>
+    <ClInclude Include="src\HttpHeader.h">
+      <Filter>http\HttpHeader</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>
