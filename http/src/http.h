@@ -15,12 +15,14 @@ public:
 
 
 	http & connect();
+	http & connect_proxy(const std::string & proxy_name, const std::string & userPass64);
+
 	http & get();
 	http & disconnect();
 
 	bool autoget();
 
-	const char * text() const;
+//	const char * text() const;
 	const char * text();
 
 	bool NoError() const;
@@ -78,6 +80,9 @@ private:
 	bool socketflag;
 	bool connecting;
 	fw::uint ContentSize;
+	short port;
+	std::string additionalHeader;
+	std::string host;
 
 	bool InitWinsock();
 	bool GetIP();

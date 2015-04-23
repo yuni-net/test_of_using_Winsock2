@@ -12,7 +12,14 @@ public:
 
 	char * bufhead();
 	fw::uint bufsize() const;
+
+	// この関数に渡す文字列情報は行の羅列である必要がある
+	// つまり、最後は\r\n\0となっている必要がある
 	void analyze(const char * str);
+
+	// bufferの内容がヌル文字で終わる文字列形式であってはならない
+	// bufferの内容は\r\n\r\nで終わっている必要がある
+	// analyze()は内部でbufferの後ろから2番目の文字をヌル文字で上書きする
 	void analyze();
 
 	bool ResponseIs2XX() const;

@@ -10,6 +10,9 @@ http::http()
 
 http & http::connect()
 {
+	port = 80;
+	additionalHeader = "";
+
 	if (url.find("https://") != std::string::npos)
 	{
 		mode = UnsupportedHTTPSMode;
@@ -32,6 +35,41 @@ http & http::connect()
 		printf("domain:%s\nuri:%s\n", domain.c_str(), uri.c_str());
 	}
 
+	host = domain;
+
+	if (GetIP()) ConnectToServer();
+
+	return *this;
+}
+http & http::connect_proxy(const std::string & proxy_name, const std::string & userPass64)
+{
+	port = 8080;
+	additionalHeader = "Proxy-Authorization: Basic " + userPass64;
+
+	if (url.find("https://") != std::string::npos)
+	{
+		mode = UnsupportedHTTPSMode;
+		return *this;
+	}
+
+	if (InitWinsock() == false) return *this;
+	if (CreateSocket() == false) return *this;
+
+	{
+		std::string WithoutScheme;
+		if (url.find("http://") == std::string::npos) WithoutScheme = url;
+		else WithoutScheme = url.substr(7);
+
+		fw::uint slash = WithoutScheme.find('/');
+		host = WithoutScheme.substr(0, slash);
+
+		// debug
+		printf("domain:%s\nuri:%s\n", domain.c_str(), uri.c_str());
+	}
+
+	domain = proxy_name;
+	uri = url;
+
 	if (GetIP()) ConnectToServer();
 
 	return *this;
@@ -41,11 +79,12 @@ http & http::get()
 {
 	if (NoError())
 	{
+		ContentSize = 0;
+
 	//	if(HeadRequest() )
 	//	{
 	//		if(ReceiveHead() )
 	//		{
-				content.setsize(110000);
 				if (GetRequest())
 				{
 					ReceiveAll();
@@ -111,6 +150,7 @@ void http::output_to_file(const char * name) const
 {
 	fw::bfile file(name);
 	file.open_to_write();
+	file.clear();
 	file.write(content.head(), content.size());
 }
 void http::output_to_file(const std::string & name) const
@@ -118,6 +158,7 @@ void http::output_to_file(const std::string & name) const
 	output_to_file(name.c_str());
 }
 
+#if 0
 const char * http::text() const
 {
 	// There is a problem.
@@ -126,16 +167,10 @@ const char * http::text() const
 	another.add('\0');
 	return fw::pointer_cast<const char *>(another.head());
 }
+#endif
+
 const char * http::text()
 {
-	// debug
-	printf("size:%d\n", content.size());
-
-	if (content.last() != '\0')
-	{
-		content.add('\0');
-	}
-
 	return fw::pointer_cast<const char *>(content.head());
 }
 
@@ -181,9 +216,8 @@ bool http::InitWinsock()
 
 bool http::GetIP()
 {
-	hostinfo;
 	hostinfo.sin_family = AF_INET;
-	hostinfo.sin_port = htons(short(80));
+	hostinfo.sin_port = htons(short(port));
 	ULONG & ref = hostinfo.sin_addr.S_un.S_addr;
 	ref = inet_addr(domain.c_str());
 	if (ref == INADDR_NONE)
@@ -233,10 +267,15 @@ bool http::request(const char * mode)
 		=
 		fw::cnct() <<
 		mode << " " << uri << " HTTP/1.1" << "\r\n" <<
-		"Host: " << domain << "\r\n" <<
+		"Host: " << host << "\r\n" <<
 		"Content-Length: 0" << "\r\n" <<
-		"Connection: Keep-Alive" << "\r\n" <<=
+		"Connection: Keep-Alive" << "\r\n" <<
+		additionalHeader << "\r\n" <<=
 		"\r\n";
+
+	printf("\n");
+	printf(request.c_str());
+	printf("\n");
 
 	if (::send(socket, request.c_str(), request.length(), 0) == SOCKET_ERROR)
 	{
@@ -363,6 +402,7 @@ bool http::ReceiveAll()
 		return false;
 	}
 
+#if 0
 	if (done > content.size())
 	{
 		printf("over capacity\n");	// debug
@@ -373,18 +413,31 @@ bool http::ReceiveAll()
 	}
 
 	content.setsize(done);
+#endif
 
 	return NoError();
 }
 
 fw::uint http::receive(fw::vuchar & buffer, bool HeadFlag)
 {
+#if 0
+	テザリングの場合ヘッダの直後にヌル文字が入り、
+	その後 0D 0A が続く
+#endif
+
+	const int onetime_size = 65536 * 2;
+
 	fw::uint HeadSize = 0;
 	fw::uint total = 0;
+
 	while (true)
 	{
-		int nBytesRecv = recv(socket, fw::pointer_cast<char *>(buffer.head()), buffer.size(), 0);
+		buffer.addsize(onetime_size);
+
+		int nBytesRecv = recv(socket, fw::pointer_cast<char *>(buffer.address(total)), onetime_size-1, 0);
 		total += nBytesRecv;
+		buffer[total] = '\0';
+
 		if (nBytesRecv == SOCKET_ERROR)
 		{
 			mode = SocketErrorMode;
@@ -414,18 +467,39 @@ fw::uint http::receive(fw::vuchar & buffer, bool HeadFlag)
 		{
 			if (HeadSize == 0)
 			{
-				content[total] = '\0';
-				const char * endpoint = strstr(fw::pointer_cast<const char *>(content.head()), "\r\n\r\n");
+				const char * endpoint = strstr(fw::pointer_cast<const char *>(buffer.head()), "\r\n\r\n");
 				if (endpoint != NULL)
 				{
 					endpoint += strlen("\r\n\r\n");
-					HeadSize = endpoint - fw::pointer_cast<const char *>(content.head());
+					HeadSize = endpoint - fw::pointer_cast<const char *>(buffer.head());
+
+					// todo analyze http header
+					HttpHeader lyzer;
+					lyzer.buffer.setsize(HeadSize);
+					memcpy(lyzer.buffer.head(), buffer.head(), HeadSize);
+					lyzer.analyze();
+					if (lyzer.UsefulContentLength())
+					{
+						ContentSize = lyzer.ContentLength();
+					}
+					else
+					{
+						// ContentLenthヘッダフィールドが見つからない
+						// =コンテンツのサイズがわからない！
+					}
 				}
 			}
 
 			if (HeadSize != 0)
 			{
-				if ((total - HeadSize) >= ContentSize) break;
+				if (ContentSize == 0)
+				{
+					if (nBytesRecv < onetime_size - 1) break;
+				}
+				else
+				{
+					if ((total - HeadSize) >= ContentSize) break;
+				}
 			}
 		}
 	}
