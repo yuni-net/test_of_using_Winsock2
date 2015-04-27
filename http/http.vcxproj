@@ -87,10 +87,12 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="src\http.cpp" />
     <ClCompile Include="src\HttpHeader.cpp" />
+    <ClCompile Include="src\URLSeparater.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\http.h" />
     <ClInclude Include="src\HttpHeader.h" />
+    <ClInclude Include="src\URLSeparater.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

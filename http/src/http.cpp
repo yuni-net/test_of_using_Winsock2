@@ -1,131 +1,146 @@
-#include "http.h"
+#include "Http.h"
 #include "HttpHeader.h"
+#include "URLSeparater.h"
 
-http::http()
-{
-	mode = NoErrorMode;
-	socketflag = false;
-	connecting = false;
-}
+// プロキシサーバーと通信する際、hostは取得したいURLのドメインなのか？？？
 
-http & http::connect()
+
+/* @brief サーバーと通信を行い、データを受信します
+** @param
+**  url:サーバーのIPアドレスやドメインだけでなく、URL全体を指定してください
+** @return 成功:true, 失敗:false
+*/
+bool Http::load(const std::string url)
 {
+	error_mode = NoErrorMode;
+	content.zerosize();
+	header.init();
+
+	if (init_winsock() == false)
+	{
+		return false;
+	}
+	if (create_socket() == false)
+	{
+		return false;
+	}
+
 	port = 80;
 	additionalHeader = "";
 
-	if (url.find("https://") != std::string::npos)
+	URLSeparater rater(url);
+	this->domain = rater.domain();
+	this->uri = rater.uri();
+	this->host = domain;
+
+	if (get_IP() == false)
 	{
-		mode = UnsupportedHTTPSMode;
-		return *this;
+		return false;
 	}
 
-	if (InitWinsock() == false) return *this;
-	if (CreateSocket() == false) return *this;
-
+	if (connect_to_server() == false)
 	{
-		std::string WithoutScheme;
-		if (url.find("http://") == std::string::npos) WithoutScheme = url;
-		else WithoutScheme = url.substr(7);
-
-		fw::uint slash = WithoutScheme.find('/');
-		domain = WithoutScheme.substr(0, slash);
-		uri = WithoutScheme.substr(slash);
-
-		// debug
-		printf("domain:%s\nuri:%s\n", domain.c_str(), uri.c_str());
+		return false;
 	}
 
-	host = domain;
+	just_load();
+	disconnect();
 
-	if (GetIP()) ConnectToServer();
-
-	return *this;
+	return true;
 }
-http & http::connect_proxy(const std::string & proxy_name, const std::string & userPass64)
+
+/* @brief "プロキシ"サーバーと通信を行い、データを受信します
+** @param
+**  url:サーバーのIPアドレスやドメインだけでなく、URL全体を指定してください
+**  proxy_name:プロキシサーバーのドメインかIPアドレスを指定します(ex."192.168.1.1")
+**  user_pass64:"ユーザー名:パスワード"の文字列を64エンコードした文字列を指定します
+** @return 成功:true, 失敗:false
+*/
+bool Http::load(
+	const std::string url,
+	const std::string proxy_name,
+	const std::string user_pass64)
 {
+	error_mode = NoErrorMode;
+	content.zerosize();
+	header.init();
+
+	if (init_winsock() == false)
+	{
+		return false;
+	}
+	if (create_socket() == false)
+	{
+		return false;
+	}
+
 	port = 8080;
-	additionalHeader = "Proxy-Authorization: Basic " + userPass64;
+	additionalHeader = "Proxy-Authorization: Basic " + user_pass64 + "\r\n";
 
-	if (url.find("https://") != std::string::npos)
+	URLSeparater rater(url);
+	this->domain = proxy_name;
+	this->uri = url;
+	this->host = domain;
+
+	if (get_IP() == false)
 	{
-		mode = UnsupportedHTTPSMode;
-		return *this;
+		return false;
 	}
 
-	if (InitWinsock() == false) return *this;
-	if (CreateSocket() == false) return *this;
-
+	if (connect_to_server() == false)
 	{
-		std::string WithoutScheme;
-		if (url.find("http://") == std::string::npos) WithoutScheme = url;
-		else WithoutScheme = url.substr(7);
-
-		fw::uint slash = WithoutScheme.find('/');
-		host = WithoutScheme.substr(0, slash);
-
-		// debug
-		printf("domain:%s\nuri:%s\n", domain.c_str(), uri.c_str());
+		return false;
 	}
 
-	domain = proxy_name;
-	uri = url;
+	just_load();
+	disconnect();
 
-	if (GetIP()) ConnectToServer();
-
-	return *this;
+	return true;
 }
 
-http & http::get()
+// 受信したデータを文字列として取得します
+// 末尾にヌル文字が追加された状態となっています
+const char * Http::content_as_text() const
 {
-	if (NoError())
-	{
-		ContentSize = 0;
-
-	//	if(HeadRequest() )
-	//	{
-	//		if(ReceiveHead() )
-	//		{
-				if (GetRequest())
-				{
-					ReceiveAll();
-				}
-	//		}
-	//	}
-	}
-
-	return *this;
+	const fw::uchar * address = content.address(header.header_size());
+	return fw::pointer_cast<const char *>(address);
 }
 
-http & http::disconnect()
+// 受信したデータのバイト数を取得します
+// 末尾に追加されたヌル文字の分はカウントされません
+fw::uint Http::content_byte() const
 {
-	if (connecting) shutdown(socket, SD_BOTH);
-	connecting = false;
-	return *this;
-}
-
-bool http::autoget()
-{
-	return connect().get().disconnect().NoError();
+	return content.size() - 1;
 }
 
 
-bool http::NoError() const { return mode == NoErrorMode; }
-bool http::FailedToMatchVersion() const { return mode == FailedToMatchVersionMode; }
-bool http::FailedToInitWinsock() const { return mode == FailedToInitWinsockMode; }
-bool http::FailedToCreateSocket() const { return mode == FailedToCreateSocketMode; }
-bool http::FailedToFindIP() const { return mode == FailedToFindIPMode; }
-bool http::FailedToConnect() const { return mode == FailedToConnectMode; }
-bool http::FailedToSend() const { return mode == FailedToSendMode; }
-bool http::FailedToReceive() const { return mode == FailedToReceiveMode; }
-bool http::UnsupportedHTTPS() const { return mode == UnsupportedHTTPSMode; }
-bool http::ServerUnsupported() const { return mode == ServerUnsupportedMode; }
-bool http::FailedToFindURI() const { return mode == FailedToFindURIMode; }
-bool http::ServerDisconnected() const { return mode == ServerDisconnectedMode; }
-bool http::SocketError() const { return mode == SocketErrorMode; }
-
-const char * http::errortext_p() const
+// サーバーから返されたHTTPヘッダーを管理するクラスのインスタンスを取得します
+const HttpHeader & Http::get_header() const
 {
-#define macro(name) if( name () ) return #name;
+	return header;
+}
+
+// 何もエラーが起こっていないときtrue, 何らかのエラーが既に起きているときfalseを返します
+bool Http::no_error() const { return error_mode == NoErrorMode; }
+
+bool Http::failed_to_match_version() const { return error_mode == FailedToMatchVersionMode; }
+bool Http::failed_to_init_winsock() const { return error_mode == FailedToInitWinsockMode; }
+bool Http::failed_to_create_socket() const { return error_mode == FailedToCreateSocketMode; }
+bool Http::failed_to_find_IP() const { return error_mode == FailedToFindIPMode; }
+bool Http::failed_to_connect() const { return error_mode == FailedToConnectMode; }
+bool Http::failed_to_send() const { return error_mode == FailedToSendMode; }
+bool Http::failed_to_receive() const { return error_mode == FailedToReceiveMode; }
+bool Http::unsupported_HTTPS() const { return error_mode == UnsupportedHTTPSMode; }
+bool Http::server_unsupported() const { return error_mode == ServerUnsupportedMode; }
+bool Http::failed_to_find_URI() const { return error_mode == FailedToFindURIMode; }
+bool Http::server_disconnected() const { return error_mode == ServerDisconnectedMode; }
+bool Http::socket_error() const { return error_mode == SocketErrorMode; }
+
+
+// エラーの種類を文字列として取得します
+std::string Http::error_text() const
+{
+#define macro(name) if( error_mode == name##Mode ) return #name;
 	macro(FailedToMatchVersion)
 		macro(FailedToInitWinsock)
 		macro(FailedToCreateSocket)
@@ -141,42 +156,60 @@ const char * http::errortext_p() const
 #undef macro
 		return "NoError";
 }
-std::string http::errortext() const
+
+
+
+
+Http::Http()
 {
-	return std::string(errortext_p());
+	error_mode = NoErrorMode;
+	socketflag = false;
+	connecting = false;
 }
 
-void http::output_to_file(const char * name) const
+Http::~Http()
 {
-	fw::bfile file(name);
-	file.open_to_write();
-	file.clear();
-	file.write(content.head(), content.size());
-}
-void http::output_to_file(const std::string & name) const
-{
-	output_to_file(name.c_str());
-}
-
-#if 0
-const char * http::text() const
-{
-	// There is a problem.
-	if (content.last() == '\0') return fw::pointer_cast<const char *>(content.head());
-	fw::vuchar another(content);
-	another.add('\0');
-	return fw::pointer_cast<const char *>(another.head());
-}
-#endif
-
-const char * http::text()
-{
-	return fw::pointer_cast<const char *>(content.head());
+	disconnect();
+	if (socketflag) closesocket(socket);
 }
 
 
+void Http::just_load()
+{
+	request();
+	
+	receive();
 
-bool http::InitWinsock()
+	if (no_error() == false)
+	{
+		return;
+	}
+
+	if (header.response_is_2XX() == false)
+	{
+		error_mode = ServerUnsupportedMode;
+		return;
+	}
+}
+
+void Http::disconnect()
+{
+	if (connecting) shutdown(socket, SD_BOTH);
+	connecting = false;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+bool Http::init_winsock()
 {
 	/*
 	** Winsockの初期化は、このアプリケーション上で一度だけ実行される
@@ -198,13 +231,13 @@ bool http::InitWinsock()
 		bool match = LOBYTE(wsd.wVersion) == lobyte && HIBYTE(wsd.wVersion) == hibyte;
 		if (match == false)
 		{
-			mode = FailedToMatchVersionMode;
+			error_mode = FailedToMatchVersionMode;
 			return false;
 		}
 	}
 	else
 	{
-		mode = FailedToInitWinsockMode;
+		error_mode = FailedToInitWinsockMode;
 		return false;
 	}
 
@@ -214,7 +247,7 @@ bool http::InitWinsock()
 	return true;
 }
 
-bool http::GetIP()
+bool Http::get_IP()
 {
 	hostinfo.sin_family = AF_INET;
 	hostinfo.sin_port = htons(short(port));
@@ -225,7 +258,7 @@ bool http::GetIP()
 		HOSTENT * hostent = gethostbyname(domain.c_str());
 		if (hostent == NULL)
 		{
-			mode = FailedToFindIPMode;
+			error_mode = FailedToFindIPMode;
 			return false;
 		}
 		ref = *fw::pointer_cast<fw::uint *>(hostent->h_addr_list[0]);
@@ -234,14 +267,14 @@ bool http::GetIP()
 	return true;
 }
 
-bool http::CreateSocket()
+bool Http::create_socket()
 {
 	if (socketflag) return true;
 
 	socket = ::socket(AF_INET, SOCK_STREAM, 0);
 	if (socket == INVALID_SOCKET)
 	{
-		mode = FailedToCreateSocketMode;
+		error_mode = FailedToCreateSocketMode;
 		return false;
 	}
 	socketflag = true;
@@ -249,28 +282,28 @@ bool http::CreateSocket()
 	return true;
 }
 
-bool http::ConnectToServer()
+bool Http::connect_to_server()
 {
 	connecting = false;
 	if (::connect(socket, fw::pointer_cast<sockaddr *>(&hostinfo), sizeof(hostinfo)) == SOCKET_ERROR)
 	{
-		mode = FailedToConnectMode;
+		error_mode = FailedToConnectMode;
 		return false;
 	}
 	connecting = true;
 	return true;
 }
 
-bool http::request(const char * mode)
+bool Http::request()
 {
 	std::string request
 		=
 		fw::cnct() <<
-		mode << " " << uri << " HTTP/1.1" << "\r\n" <<
+		"GET " << uri << " HTTP/1.1" << "\r\n" <<
 		"Host: " << host << "\r\n" <<
 		"Content-Length: 0" << "\r\n" <<
-		"Connection: Keep-Alive" << "\r\n" <<
-		additionalHeader << "\r\n" <<=
+		"Connection: close" << "\r\n" <<
+		additionalHeader <<=
 		"\r\n";
 
 	printf("\n");
@@ -279,146 +312,15 @@ bool http::request(const char * mode)
 
 	if (::send(socket, request.c_str(), request.length(), 0) == SOCKET_ERROR)
 	{
-		this->mode = FailedToSendMode;
+		this->error_mode = FailedToSendMode;
 		return false;
 	}
 
 	return true;
 }
 
-bool http::HeadRequest()
-{
-	return this->request("HEAD");
-}
 
-bool http::ReceiveHead()
-{
-	
-	HttpHeader header;
-	header.buffer.setsize(1024);
-	fw::uint HeadSize = receive(header.buffer, true);
-	if (NoError() == false)
-	{
-		printf("ReceiveHead\n");
-		return false;
-	}
-	header.buffer.setsize(HeadSize);
-	header.analyze();
-
-	if (header.ResponseIs2XX() == false && header.ResponseIs3XX() == false)
-	{
-		mode = ServerUnsupportedMode;
-		return false;
-	}
-
-	if (header.ResponseIs3XX())
-	{
-		if (header.UsefulLocation())
-		{
-			uri = header.Location();
-			if (HeadRequest())
-			{
-				return ReceiveHead();
-			}
-
-			return false;
-		}
-		else
-		{
-			mode = FailedToFindURIMode;
-			return false;
-		}
-	}
-
-	if (header.UsefulConnection())
-	{
-		if (header.ConnectionIsKeepAlive() == false) ConnectToServer();
-	}
-	else
-	{
-		ConnectToServer();
-	}
-
-	if (header.UsefulContentLength())
-	{
-		ContentSize = header.ContentLength();
-		content.setsize(HeadSize + 256 + ContentSize);
-	}
-	else
-	{
-		content.setsize(1024);
-	}
-
-	return true;
-}
-
-bool http::GetRequest()
-{
-	return this->request("GET");
-}
-
-bool http::ReceiveAll()
-{
-	struct for_StatusIs2XX
-	{
-		bool operator() (const fw::vuchar & content)
-		{
-			struct for_findstr
-			{
-				fw::uint operator() (const char * str)
-				{
-					//	for(uint i=0;i<strlen(str)-1;++i)
-					for (fw::uint i = 0; i + 1<strlen(str); ++i)
-					{
-						if (str[i] == '\r' && str[i + 1] == '\n') return i;
-					}
-					return 0;
-				}
-			}findstr;
-
-			fw::vector<char> firstline;
-			const char * strp = fw::pointer_cast<const char *>(content.head());
-			fw::uint flsize = findstr(strp);
-			firstline.setsize(flsize + 1);
-			memcpy(firstline.head(), strp, flsize);
-			firstline.last() = '\0';
-			char version[9], status[4], message[33];
-			sscanf(firstline.head(), "%s %s %s", version, status, message);
-
-			return status[0] == '2';
-		}
-	}StatusIs2XX;
-
-	fw::uint done = receive(content, false);
-
-	if (NoError() == false)
-	{
-		return false;
-	}
-
-	if (StatusIs2XX(content) == false)
-	{
-		mode = ServerUnsupportedMode;
-		return false;
-	}
-
-#if 0
-	if (done > content.size())
-	{
-		printf("over capacity\n");	// debug
-		content.addsize(content.size());
-
-		if (GetRequest()) return ReceiveAll();
-		else return false;
-	}
-
-	content.setsize(done);
-#endif
-
-	return NoError();
-}
-
-fw::uint http::receive(fw::vuchar & buffer, bool HeadFlag)
+void Http::receive()
 {
 #if 0
 	テザリングの場合ヘッダの直後にヌル文字が入り、
@@ -426,96 +328,92 @@ fw::uint http::receive(fw::vuchar & buffer, bool HeadFlag)
 #endif
 
 	const int onetime_size = 65536 * 2;
-
-	fw::uint HeadSize = 0;
 	fw::uint total = 0;
 
 	while (true)
 	{
-		buffer.addsize(onetime_size);
+		content.addsize(onetime_size);
 
-		int nBytesRecv = recv(socket, fw::pointer_cast<char *>(buffer.address(total)), onetime_size-1, 0);
-		total += nBytesRecv;
-		buffer[total] = '\0';
+		int received_byte = recv(socket, fw::pointer_cast<char *>(content.address(total)), onetime_size - 1, 0);
+		total += received_byte;
+		content[total] = '\0';
 
-		if (nBytesRecv == SOCKET_ERROR)
+		if (received_byte == SOCKET_ERROR)
 		{
-			mode = SocketErrorMode;
-			return 0;
+			error_mode = SocketErrorMode;
+			return;
 		}
-		if (nBytesRecv == 0)
+		if (received_byte == 0)
 		{
-			mode = ServerDisconnectedMode;
-			return 0;
+			error_mode = ServerDisconnectedMode;
+			return;
 		}
 
-		if (HeadFlag)
+		if (header.avarable())
 		{
-			fw::uchar * last4 = buffer.address(total - 4);
-			if
-				(
-				last4[0] == '\r' &&
-				last4[1] == '\n' &&
-				last4[2] == '\r' &&
-				last4[3] == '\n'
-				)
+			if (judge_finish_or_not(total, received_byte, onetime_size-1))
 			{
-				break;
+				adjust_content(total);
+				return;
 			}
 		}
 		else
 		{
-			if (HeadSize == 0)
-			{
-				const char * endpoint = strstr(fw::pointer_cast<const char *>(buffer.head()), "\r\n\r\n");
-				if (endpoint != NULL)
-				{
-					endpoint += strlen("\r\n\r\n");
-					HeadSize = endpoint - fw::pointer_cast<const char *>(buffer.head());
+			look_for_header();
+		}		
+	}
+}
 
-					// todo analyze http header
-					HttpHeader lyzer;
-					lyzer.buffer.setsize(HeadSize);
-					memcpy(lyzer.buffer.head(), buffer.head(), HeadSize);
-					lyzer.analyze();
-					if (lyzer.UsefulContentLength())
-					{
-						ContentSize = lyzer.ContentLength();
-					}
-					else
-					{
-						// ContentLenthヘッダフィールドが見つからない
-						// =コンテンツのサイズがわからない！
-					}
-				}
-			}
 
-			if (HeadSize != 0)
-			{
-				if (ContentSize == 0)
-				{
-					if (nBytesRecv < onetime_size - 1) break;
-				}
-				else
-				{
-					if ((total - HeadSize) >= ContentSize) break;
-				}
-			}
+bool Http::judge_finish_or_not(fw::uint total, fw::uint received_byte, fw::uint prepared_size)
+{
+	if (header.useful_content_length())
+	{
+		if (total >= header.header_size() + header.content_length())
+		{
+			printf("\nfinished recv cause reached to Content-Length\n");
+			return true;
+		}
+	}
+	else
+	{
+		if (received_byte < prepared_size)
+		{
+			// 用意したバッファよりも格納されたデータの方が少なかった
+			// つまりこれ以上受信すべきデータは無い
+			printf("\nfinished recv cause recv buffer is empty\n");
+			return true;
 		}
 	}
 
-
-	return total;
+	return false;
 }
 
-
-http::~http()
+void Http::adjust_content(fw::uint size)
 {
-	disconnect();
-	if (socketflag) closesocket(socket);
+	content.setsize(size);
 }
 
-void http::cleanup(void)
+void Http::look_for_header()
+{
+	const char * endpoint = strstr(fw::pointer_cast<const char *>(content.head()), "\r\n\r\n");
+	
+	if (endpoint == NULL)
+	{
+		return;
+	}
+
+	endpoint += strlen("\r\n\r\n");
+	fw::uint header_size = endpoint - fw::pointer_cast<const char *>(content.head());
+
+	header.init(content.head(), header_size);
+}
+
+
+
+void Http::cleanup(void)
 {
 	WSACleanup();
 }
+
+

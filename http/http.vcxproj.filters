@@ -8,6 +8,9 @@
     <ClCompile Include="src\HttpHeader.cpp">
       <Filter>http\HttpHeader</Filter>
     </ClCompile>
+    <ClCompile Include="src\URLSeparater.cpp">
+      <Filter>http\URLSeparater</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="http">
@@ -16,6 +19,9 @@
     <Filter Include="http\HttpHeader">
       <UniqueIdentifier>{79b6164e-bdbe-44bd-8f2a-9964adbcc941}</UniqueIdentifier>
     </Filter>
+    <Filter Include="http\URLSeparater">
+      <UniqueIdentifier>{9f998661-9df2-44df-a8fe-8bf9256ac99f}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\http.h">
@@ -23,6 +29,9 @@
     </ClInclude>
     <ClInclude Include="src\HttpHeader.h">
       <Filter>http\HttpHeader</Filter>
+    </ClInclude>
+    <ClInclude Include="src\URLSeparater.h">
+      <Filter>http\URLSeparater</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

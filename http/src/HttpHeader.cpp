@@ -1,23 +1,68 @@
 #include "HttpHeader.h"
 
+#define content_length_text "Content-Length"
+#define connection_text "Connection"
+#define location_text "Location"
+
+
+
+// このクラスを、header_dataに指定したHTTPヘッダーで初期化します
+// 内部でHTTPヘッダーの解析が行われます
+// エラーが無ければ、avarable() は true を返すようになります
+// header_dataの内容がヌル文字で終わる文字列形式であってはいけません
+// header_dataの内容は\r\n\r\nで終わっている必要があります
+void HttpHeader::init(fw::uchar * header_data, fw::uint header_size_)
+{
+	buffer.setsize(header_size_);
+	memcpy(buffer.head(), header_data, header_size_);
+	analyze();
+	avarable_ = true;
+	this->header_size_ = header_size_;
+}
+
+// このクラスが現在使い物になるものなのかどうかを返します
+// 有効ならtrue, 無効ならfalseを返します
+bool HttpHeader::avarable() const
+{
+	return avarable_;
+}
+
+// HTTPレスポンスのヘッダー部分のサイズをバイト数で返します
+// つまり\r\n\r\n部分も含めたサイズを返します
+fw::uint HttpHeader::header_size() const
+{
+	return header_size_;
+}
+
+
+bool HttpHeader::response_is_2XX() const { return Code[0] == '2'; }
+bool HttpHeader::response_is_3XX() const { return Code[0] == '3'; }
+
+bool HttpHeader::useful_content_length() const { return table[content_length_text].size()>0; }
+fw::uint HttpHeader::content_length() const { return atoi(table[content_length_text][0].c_str()); }
+
+bool HttpHeader::useful_connection() const { return table[connection_text].size()>0; }
+bool HttpHeader::connection_is_KeepAlive() const { return table[connection_text][0] == "Keep-Alive"; }
+
+bool HttpHeader::useful_location() const { return table[location_text].size()>0; }
+const std::string & HttpHeader::location() const { return table[location_text][0]; }
+
+
+// この関数を呼ぶと、データが破棄されます
+// avarable() は false を返すようになります
+void HttpHeader::init()
+{
+	avarable_ = false;
+	table.clear();
+}
+
+
+
 HttpHeader::HttpHeader()
-	:
-	strContentLength("Content-Length"),
-	strConnection("Connection"),
-	strLocation("Location")
 {
-	// Nothing
+	avarable_ = false;
 }
 
-char * HttpHeader::bufhead()
-{
-	return fw::pointer_cast<char *>(buffer.head());
-}
-
-fw::uint HttpHeader::bufsize() const
-{
-	return buffer.size();
-}
 
 void HttpHeader::analyze(const char * str)
 {
@@ -43,8 +88,6 @@ void HttpHeader::analyze(const char * str)
 	{
 		fw::uint colon = lines[i].find(':');
 		fw::uint beg = lines[i].find_first_not_of(" \t", colon + 1);
-		printf("\n\nfound header field:%s\n", lines[i].substr(0, colon).c_str());
-		printf("target str to find beg:%s\n", lines[i].substr(colon + 1).c_str());
 		if (beg == std::string::npos) printf("Not Found beg\n\n");
 
 		fw::vstring & ref = table[lines[i].substr(0, colon)];	// テーブル(std::map)を増やしてる
@@ -66,17 +109,9 @@ void HttpHeader::analyze(const char * str)
 void HttpHeader::analyze()
 {
 	buffer[buffer.size() - 2] = fw::uchar('\0');
-	analyze(bufhead());
+
+	printf(fw::pointer_cast<const char *>(buffer.head()));
+
+	analyze(fw::pointer_cast<const char *>(buffer.head()));
 }
 
-bool HttpHeader::ResponseIs2XX() const { return Code[0] == '2'; }
-bool HttpHeader::ResponseIs3XX() const { return Code[0] == '3'; }
-
-bool HttpHeader::UsefulContentLength() const { return table[strContentLength].size()>0; }
-fw::uint HttpHeader::ContentLength() const { return atoi(table[strContentLength][0].c_str()); }
-
-bool HttpHeader::UsefulConnection() const { return table[strConnection].size()>0; }
-bool HttpHeader::ConnectionIsKeepAlive() const { return table[strConnection][0] == "Keep-Alive"; }
-
-bool HttpHeader::UsefulLocation() const { return table[strLocation].size()>0; }
-const std::string & HttpHeader::Location() const { return table[strLocation][0]; }
